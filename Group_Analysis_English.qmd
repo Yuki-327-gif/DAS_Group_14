@@ -3,6 +3,9 @@ title: "Group_14_Analysis"
 author: "Tianrui Xie"
 date: "18 Mar 2025"
 output: html_document
+format:
+  html:
+    embed-resources: true
 editor: visual
 ---
 
@@ -50,7 +53,7 @@ summary(df)
 
 During the data cleaning process, we performed the following operations:
 
-### Handling Missing Values: 
+### Handling Missing Values:
 
 -   **`country_of_origin` (Coffee Origin):** Few missing values, so we directly removed the corresponding rows.
 -   **`altitude_mean_meters` (Altitude):** Filled missing values with the median, as altitude data might have a skewed distribution.
@@ -310,7 +313,7 @@ This means that 87.42% of all samples were correctly classified.
 
 -   False positives (FP) suggest that some low-quality coffee samples were incorrectly classified as high quality.
 
-#### **Conclusion & Optimization Suggestions** 
+#### **Conclusion & Optimization Suggestions**
 
 -   The model performs **well overall**, but **misclassification still exists**.
 
@@ -373,9 +376,9 @@ abline(h=0, col="red", lwd=2, lty=2)
 
 -   **Observations:**
 
-    -    The residuals are not completely randomly distributed but show two distinct clustering patterns, likely related to the binary classification nature of the problem.
+    -   The residuals are not completely randomly distributed but show two distinct clustering patterns, likely related to the binary classification nature of the problem.
 
-    -    This may indicate limitations in the linearity assumption of the model.
+    -   This may indicate limitations in the linearity assumption of the model.
 
 -   **Possible Solutions:**
 
@@ -383,6 +386,8 @@ abline(h=0, col="red", lwd=2, lty=2)
 
     -   Introduce interaction terms or higher-order terms to improve the model fit.
 
--    **Conclusion:**
+-   **Conclusion:**
 
-    The current model's residuals show some structured patterns, suggesting that further optimization of the model structure or variable selection may be necessary.
+```         
+The current model's residuals show some structured patterns, suggesting that further optimization of the model structure or variable selection may be necessary.
+```
