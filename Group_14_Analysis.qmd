@@ -1,0 +1,414 @@
+---
+title: "Group_14_Analysis"
+date: "18 Mar 2025"
+output: html_document
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+# 1. Introduction
+
+Coffee quality is a critical determinant of market value and consumer preference in the global coffee industry. Despite the growing demand for specialty coffee, producers often face challenges in indentifying the key factors that consistently lead to high-quality batches. Leveraging data from the Coffee Quality Institute's Coffee Quality Database(CQD), this study investigates the relationship between measurable productions features-such as sensory attributes(aroma, flavor, acidity), defect counts, and geographical conditions-and the classification of coffee batches as "Good" or "Poor". By applying a generalized linear model (GLM), we aim to quantify the impact of these variables on quality outcomes, providing actionable insights for farmers to optimize cultivation practices, reduce defects, and enhance market competitiveness. The analysis not only bridges empirical data with practical agriculture but also establishes a framework for data-driven quality improvement in coffee production.
+
+# 2. Research Question
+
+What influence do different features of coffee have on whether the quality of a batch of coffee is classified as good or poor?
+
+# 3. Data Analysis Report
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+## **3.1** Data Loading
+
+In this project, we used `dataset14.csv`, which contains coffee quality ratings as well as some chemical characteristics such as `aroma`, `flavor`, and `acidity`.
+
+First, we load the data and examine its structure, including:
+
+-   The types of variables (numerical, categorical)
+-   Missing values
+-   Basic statistical information of variables (mean, median, standard deviation, etc.)
+
+This helps us understand the fundamental characteristics of the data, preparing for subsequent data cleaning and analysis.
+
+```{r load_data, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(corrplot)
+library(glmnet)
+library(pROC)
+
+# Load Data
+df <- read.csv("dataset14.csv")
+
+# Check Basic Data Information
+str(df)
+summary(df)
+```
+
+## **3.2** Data Cleaning
+
+During the data cleaning process, we performed the following operations:
+
+### Handling Missing Values:
+
+-   **`country_of_origin` (Coffee Origin):** Few missing values, so we directly removed the corresponding rows.
+-   **`altitude_mean_meters` (Altitude):** Filled missing values with the median, as altitude data might have a skewed distribution.
+-   **`harvested` (Harvest Year):** Filled missing values with the mode, as the year is a discrete variable, making the mode the most reasonable imputation method.
+
+### Handling Outliers:
+
+-   **`altitude_mean_meters`:** The maximum value was found to be 190,164m, which is clearly abnormal. Therefore, we removed observations above 5,000m.
+
+### Variable Transformation:
+
+-   **`category_two_defects` (Number of Secondary Defects):** Highly right-skewed, so we applied a log transformation (`log+1`) to reduce the influence of extreme values.
+-   **`Qualityclass` (Quality Grade):** A categorical variable that was binarized (`Good = 1`, `Poor = 0`) to facilitate logistic regression analysis.
+
+After data cleaning, the dataset has no missing values, major outliers have been removed, and the data quality is ensured to be reliable.
+
+```{r clean_data}
+# Handling Missing Values
+df <- df %>% drop_na(country_of_origin) # Remove Rows with Missing Country Data
+df$altitude_mean_meters[is.na(df$altitude_mean_meters)] <- median(df$altitude_mean_meters, na.rm=TRUE)
+df$harvested[is.na(df$harvested)] <- as.integer(names(which.max(table(df$harvested, useNA="no"))))
+
+# Remove Outliers in Aroma（0.0）
+df <- df %>% filter(aroma != 0)
+
+# Remove Outliers in altitude_mean_meters（>5000m）
+df <- df %>% filter(altitude_mean_meters <= 5000)
+
+# Apply Log Transformation to category_two_defects
+df$category_two_defects_log <- log1p(df$category_two_defects)
+
+# Encode Qualityclass (Good = 1, Poor = 0)
+df$Qualityclass_binary <- ifelse(df$Qualityclass == "Good", 1, 0)
+
+# Basic Information After Data Cleaning
+summary(df)
+```
+
+## **3.3** Exploratory Data Analysis (EDA)
+
+### **3.3.1** Data Distribution
+
+```{r eda_plots, fig.height=5, fig.width=10}
+par(mfrow=c(1,3))
+
+# Aroma Distribution
+hist(df$aroma, main="Aroma Distribution", xlab="Aroma", col="skyblue", border="black")
+
+# Flavor Distribution
+hist(df$flavor, main="Flavor Distribution", xlab="Flavor", col="lightgreen", border="black")
+
+# Acidity Distribution
+hist(df$acidity, main="Acidity Distribution", xlab="Acidity", col="pink", border="black")
+```
+
+In the exploratory data analysis (EDA), we first examined the distribution of several key variables:
+
+-   **`Aroma`:** Mainly concentrated between 7.0 and 8.5, following a normal distribution.
+-   **`Flavor`:** Similar to aroma, with most values above 7.0.
+-   **`Acidity`:** Its distribution is close to that of aroma but slightly skewed.
+
+Overall, aroma, flavor, and acidity share similar distribution patterns, suggesting a potential strong correlation among them. This will be further confirmed in the subsequent correlation analysis.
+
+### **3.3.2** Variable Correlation
+
+```{r correlation_plot, fig.height=6, fig.width=7}
+#| message: false
+#| warning: false
+ df1 <- df %>% select(aroma, flavor, acidity, category_two_defects_log, altitude_mean_meters)
+ ggpairs(df1) +
+ theme(plot.background = element_rect(
+ fill = "transparent",
+ colour = NA,
+ size = 1))
+```
+
+We calculated the correlation among **`aroma`**, **`flavor`**, **`acidity`**, **`category_two_defects_log`**, and **`altitude_mean_meters`**, and visualized the results using a correlation heatmap.
+
+-   **`Aroma`**, **`flavor`**, and **`acidity`** exhibit a strong correlation (0.6–0.8), indicating that they may have a similar impact on **`Qualityclass`**.
+
+-   **`Category_two_defects_log`** might be related to **`Qualityclass`**, but it shows a lower correlation with **`aroma and flavor`**.
+
+-   **`Altitude_mean_meters`** appears to have a minimal effect on **`Qualityclass`**.
+
+This analysis provides a foundation for our GLM modeling, where we will further examine the influence of these variables in the regression model.
+
+## **3.4 Generalized Linear Model (**GLM)
+
+To predict the coffee quality grade (**`Qualityclass`**), we used a Generalized Linear Model (GLM), where:
+
+-   **Response Variable**：`Qualityclass_binary`（`Good=1`，`Poor=0`）
+
+-   **Predictor Variables**：
+
+    -   `aroma`
+
+    -   `flavor`
+
+    -   `acidity`
+
+    -   `altitude_mean_meters`
+
+    -   `harvested`
+
+    -   `category_two_defects_log`
+
+```{r glm_model_1}
+# Generalized Linear Model
+glm_model_1 <- glm(Qualityclass_binary ~ aroma + flavor + acidity + altitude_mean_meters + harvested + category_two_defects_log,
+                 data=df, family=binomial)
+
+# Output Model Summary
+summary(glm_model_1)
+```
+
+The model equation is as follows:：
+
+$$
+\begin{aligned}
+\log\left(\frac{P(\mathrm{Good})}{1-P(\mathrm{Good})}\right)=-209.8+4.32\cdot\mathrm{aroma}+7.42\cdot\mathrm{flavor}+3.25\cdot\mathrm{acidity}+0.0004299\cdot\\\mathrm{altitude\_mean\_meters}+0.0477\cdot\mathrm{harvested}+0.0616\cdot\mathrm{category\_two\_defects\_log}
+\end{aligned}
+$$
+
+## Variable Interpretation
+
+### **1.** Key Influencing Factors
+
+-   **`flavor`**
+
+    -   **Coefficient = 7.42**, **p \< 0.001** (highly significant).
+    -   This indicates that for every 1-point increase in flavor score, the log-odds of the coffee being rated as "Good" increases by 7.42.
+    -   Flavor remains the most critical influencing factor.
+
+-   **`aroma`**
+
+    -   **Coefficient = 4.32, p \< 0.001** (highly significant).
+    -   A 1-point increase in aroma score significantly increases the probability of the coffee being rated as "Good".
+
+-   **`acidity`**
+
+    -   **Coefficient = 3.25, p \< 0.001** (highly significant).
+    -   An increase in acidity enhances the coffee quality grade.
+
+### **2.** Factors with Minor or Insignificant Influence
+
+-   **`altitude_mean_meters`**
+
+    -   **Coefficient = 0.0004299, p = 0.0399** (significant).
+    -   Although the coefficient is small, it still suggests that higher altitude may have a **positive impact** on coffee quality.
+
+-   **`harvested`**
+
+    -   **Coefficient = 0.0477, p = 0.3654** (not significant).
+
+        The harvest year does not have a significant impact on coffee quality, indicating that the quality differences between different years are minimal.
+
+-   **`category_two_defects_log`**
+
+    -   **Coefficient = 0.0616, p = 0.6037 (not significant).**
+
+    -   This suggests that the **number of defects in coffee beans (category_two_defects_log)** has a weak predictive ability for coffee quality.
+
+    -   Possible reasons include:
+
+        -   Defect count may be **highly correlated** with variables like **flavor** and **aroma**.
+
+        -   There may be **no significant distinction** between "Good" and "Poor" coffee in terms of **category_two_defects_log**.
+
+### **Model Refinement:**
+
+We ultimately discard `altitude_mean_meters`, `harvested`, and `category_two_defects_log` and **refit the model**, obtaining a **new refined model**.
+
+```{r glm_model}
+# Generalized Linear Model
+glm_model <- glm(Qualityclass_binary ~ aroma + flavor + acidity ,data=df, family=binomial)
+
+# Output Model Summary
+summary(glm_model)
+```
+
+At this point, the **model equation** is:
+
+$$
+\begin{aligned}
+\log\left(\frac{P(\mathrm{Good})}{1-P(\mathrm{Good})}\right)=-113.1+4.36\cdot\mathrm{aroma}+7.28\cdot\mathrm{flavor}+3.32\cdot\mathrm{acidity}
+\end{aligned}
+$$
+
+## **3.5** Model Evaluation
+
+Calculate **AUC-ROC** and **Confusion Matrix**
+
+```{r model_evaluation, fig.height=6, fig.width=10}
+library(pROC)
+library(ggplot2)
+
+# Predicted Probabilities
+df$pred_prob <- predict(glm_model, type="response")
+
+# Calculating AUC-ROC
+roc_curve <- roc(df$Qualityclass_binary, df$pred_prob)
+auc_value <- auc(roc_curve)
+
+# Confusion Matrix
+threshold <- 0.5
+df$pred_class <- ifelse(df$pred_prob >= threshold, 1, 0)
+conf_matrix <- table(Predicted=df$pred_class, Actual=df$Qualityclass_binary)
+
+# Calculate Residuals
+df$residuals <- df$Qualityclass_binary - df$pred_prob
+
+# Output Evaluation Metrics
+print(paste("Accuracy:", mean(df$pred_class == df$Qualityclass_binary)))
+print(paste("AUC-ROC:", auc_value))
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Plot AUC-ROC Curve
+plot(roc_curve, col="blue", lwd=2, main="ROC Curve")
+text(0.6, 0.4, paste("AUC =", round(auc_value, 3)), col="red", cex=1.2)
+
+```
+
+### 3.5.1 AUC and ROC
+
+-   **AUC-ROC = 0.944**
+
+-   The ROC curve is very close to the top-left corner, indicating that the model has **strong discriminative power**.
+
+-   An **AUC \> 0.9** is generally considered an **excellent classifier**, meaning the model can effectively distinguish between different categories of data.
+
+    #### **Conclusion**
+
+    Your model performs **exceptionally well** in distinguishing between **high-quality** and **low-quality** coffee categories, with a **low error rate**.
+
+### **3.5.2 Confusion Matrix Analysis**
+
+#### Actual vs. Predicted Classes
+
+-   **True Positives** (TP, Predicted = 1, Actual = 1)**:** 515
+
+-   **True Negatives** (TN, Predicted = 0, Actual = 0): 472
+
+-   **False Positives** (FP, Predicted = 1, Actual = 0): 66
+
+-   **False Negatives** (FN, Predicted = 0, Actual = 1): 76
+
+**Accuracy = 87.42%**
+
+This means that 87.42% of all samples were correctly classified.
+
+#### **Misclassification Analysis**
+
+-   The main sources of misclassification are **66 false positives (FP)** and **76 false negatives (FN)**.
+
+-   False negatives (FN) indicate that some high-quality coffee samples were misclassified as low quality.
+
+-   False positives (FP) suggest that some low-quality coffee samples were incorrectly classified as high quality.
+
+#### **Conclusion & Optimization Suggestions**
+
+-   The model performs **well overall**, but **misclassification still exists**.
+
+-   **Threshold tuning** may help optimize the balance between FN and FP, depending on whether minimizing false positives or false negatives is more important for the application.
+
+### **3.5.3 Residual Analysis**
+
+```{r residual_analysis, fig.height=6, fig.width=12}
+par(mfrow=c(1,2))
+
+# Residual Histogram
+hist(df$residuals, breaks=20, col="lightblue", main="Residuals Histogram",
+     xlab="Residuals", border="white")
+
+# Quantile-Quantile Plot
+qqnorm(df$residuals, main="QQ Plot of Residuals")
+qqline(df$residuals, col="red", lwd=2)
+
+# Residuals vs. Predicted Values Scatter Plot
+plot(df$pred_prob, df$residuals, col="blue", pch=20,
+     xlab="Predicted Probability", ylab="Residuals",
+     main="Residuals vs Predicted Probability")
+abline(h=0, col="red", lwd=2, lty=2)
+
+```
+
+#### **（1）Residual Histogram**
+
+-   Most residuals are concentrated around 0, following a normal distribution trend, though there is some skewness.
+
+-   If the residuals exhibit a bell-shaped symmetric distribution, it indicates that the model's errors are randomly distributed, which is a good sign.
+
+-   **Conclusion:**
+
+    -   Residuals appear well-concentrated, suggesting that the model has small prediction errors.
+
+    -   However, there is slight skewness, which may require further examination of variable selection in the model.
+
+#### **（2）QQ Plot Analysis**
+
+-   **Purpose:**\
+    The QQ plot is used to check whether the residuals follow a normal distribution.
+
+-   **Observations:**
+
+    -   The middle points mostly lie on the red reference line, indicating that the majority of residuals follow a normal distribution.
+
+    -   The tail points deviate significantly, suggesting a heavy-tailed distribution, meaning the data deviates from normality in the extreme values.
+
+-   **Conclusion:**
+
+    -   Most residuals follow a normal distribution, indicating a good model fit.
+
+    -   However, the presence of heavy tails suggests possible outliers in the data or the need for a more complex modeling approach (e.g., incorporating nonlinear features).
+
+#### **（3）Residuals vs. Predicted Values**
+
+-   **Purpose:**\
+    This plot is used to check for heteroscedasticity, i.e., whether the error variance changes with predicted values.
+
+-   **Observations:**
+
+    -   The residuals are not completely randomly distributed but show two distinct clustering patterns, likely related to the binary classification nature of the problem.
+
+    -   This may indicate limitations in the linearity assumption of the model.
+
+-   **Possible Solutions:**
+
+    -   Consider using nonlinear models (e.g., decision trees or random forests).
+
+    -   Introduce interaction terms or higher-order terms to improve the model fit.
+
+-   **Conclusion:**
+
+```         
+The current model's residuals show some structured patterns, suggesting that further optimization of the model structure or variable selection may be necessary.
+```
+
+# 6. Conclusion
+
+Our analysis demonstrates that key coffee attributes, such as aroma, flavor, acidity, defect count, and altitude, significantly influence the classification of coffee quality. The Generalized Linear Model (GLM) results indicate that higher aroma, flavor, and acidity scores are positively associated with good-quality coffee, whereas an increase in defect count negatively impacts quality.
+
+The correlation analysis and visualizations further support these findings, revealing clear distinctions between good and poor-quality coffee batches. Additionally, the impact of altitude suggests that environmental factors also contribute to coffee quality.
+
+These insights provide valuable guidance for coffee farmers, helping them focus on improving flavor profiles, minimizing defects, and optimizing growing conditions to enhance coffee quality and market value. Future research could explore additional factors, such as processing methods and soil composition, to gain a more comprehensive understanding of coffee quality determinants.
+
+Our analysis demonstrates that key coffee attributes, such as aroma, flavor, acidity, defect count, and altitude, significantly influence the classification of coffee quality. The Generalized Linear Model (GLM) results indicate that higher aroma, flavor, and acidity scores are positively associated with good-quality coffee, whereas an increase in defect count negatively impacts quality.
+
+The correlation analysis and visualizations further support these findings, revealing clear distinctions between good and poor-quality coffee batches. Additionally, the impact of altitude suggests that environmental factors also contribute to coffee quality.
+
+These insights provide valuable guidance for coffee farmers, helping them focus on improving flavor profiles, minimizing defects, and optimizing growing conditions to enhance coffee quality and market value. Future research could explore additional factors, such as processing methods and soil composition, to gain a more comprehensive understanding of coffee quality determinants.
