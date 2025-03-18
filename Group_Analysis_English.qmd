@@ -268,7 +268,7 @@ print(paste("AUC-ROC:", auc_value))
 print("Confusion Matrix:")
 print(conf_matrix)
 
-# 绘制 AUC-ROC 曲线
+# Plot AUC-ROC Curve
 plot(roc_curve, col="blue", lwd=2, main="ROC Curve")
 text(0.6, 0.4, paste("AUC =", round(auc_value, 3)), col="red", cex=1.2)
 
