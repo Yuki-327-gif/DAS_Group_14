@@ -39,20 +39,20 @@ First, we load the data and examine its structure, including:
 This helps us understand the fundamental characteristics of the data, preparing for subsequent data cleaning and analysis.
 
 ```{r load_data, message=FALSE, warning=FALSE}
-library(ggplot2)
-library(GGally)
-library(dplyr)
-library(tidyr)
-library(readr)
-library(corrplot)
-library(glmnet)
-library(pROC)
+library(ggplot2)   # Used for plotting
+library(GGally)    # Used for creating scatterplot matrices and correlation plots
+library(dplyr)     # Used for data manipulation and transformation
+library(tidyr)     # Used for data reshaping
+library(readr)     # Used for efficient data reading
+library(corrplot)  # Used for creating correlation heatmaps
+library(glmnet)    # Used for Generalized Linear Model (GLM) modeling
+library(pROC)      # Used for computing ROC curves and AUC
 
 # Load Data
 df <- read.csv("dataset14.csv")
 
 # Check Basic Data Information
-str(df)
+str(df)          
 summary(df)
 ```
 
@@ -405,10 +405,9 @@ Our analysis demonstrates that key coffee attributes, such as aroma, flavor, aci
 
 The correlation analysis and visualizations further support these findings, revealing clear distinctions between good and poor-quality coffee batches. Additionally, the impact of altitude suggests that environmental factors also contribute to coffee quality.
 
-These insights provide valuable guidance for coffee farmers, helping them focus on improving flavor profiles, minimizing defects, and optimizing growing conditions to enhance coffee quality and market value. Future research could explore additional factors, such as processing methods and soil composition, to gain a more comprehensive understanding of coffee quality determinants.
-
 Our analysis demonstrates that key coffee attributes, such as aroma, flavor, acidity, defect count, and altitude, significantly influence the classification of coffee quality. The Generalized Linear Model (GLM) results indicate that higher aroma, flavor, and acidity scores are positively associated with good-quality coffee, whereas an increase in defect count negatively impacts quality.
 
-The correlation analysis and visualizations further support these findings, revealing clear distinctions between good and poor-quality coffee batches. Additionally, the impact of altitude suggests that environmental factors also contribute to coffee quality.
-
 These insights provide valuable guidance for coffee farmers, helping them focus on improving flavor profiles, minimizing defects, and optimizing growing conditions to enhance coffee quality and market value. Future research could explore additional factors, such as processing methods and soil composition, to gain a more comprehensive understanding of coffee quality determinants.
+
+
+
